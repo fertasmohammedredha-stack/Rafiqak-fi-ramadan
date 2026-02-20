@@ -677,8 +677,8 @@
         <span class="azan-toggle-label">تنبيه السحور (15 دقيقة)</span>
         <button class="toggle-switch" id="suhoor-notif" onclick="toggleAzan(this)"></button>
       </div>
-      <button onclick="playAzan('الاختبار')" style="margin-top:14px;width:100%;background:rgba(45,212,191,0.1);border:1px solid rgba(45,212,191,0.4);color:var(--accent-teal);font-family:'Tajawal',sans-serif;font-size:0.9rem;padding:11px;border-radius:12px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='rgba(45,212,191,0.2)'" onmouseout="this.style.background='rgba(45,212,191,0.1)'">
-        🔊 تشغيل الأذان (اختبار)
+      <button onclick="testAzan()" style="margin-top:14px;width:100%;background:rgba(45,212,191,0.1);border:1px solid rgba(45,212,191,0.4);color:var(--accent-teal);font-family:'Tajawal',sans-serif;font-size:0.9rem;padding:11px;border-radius:12px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='rgba(45,212,191,0.2)'" onmouseout="this.style.background='rgba(45,212,191,0.1)'">
+        🔊 تجربة صوت الأذان
       </button>
     </div>
     <div style="text-align:center;padding:0 16px 8px;font-size:0.75rem;color:var(--text-secondary);">
@@ -1396,92 +1396,115 @@ function setupAzanTimers(times, minsArr) {
 }
 
 // ========================
-// AZAN AUDIO - Real Algerian Muezzin
+// AZAN AUDIO - أذان حقيقي بعدة مصادر احتياطية
 // ========================
-// Algerian azan from Islamic Network CDN (free, CORS-enabled)
-const AZAN_SOURCES = [
-  'https://cdn.islamic.network/quran/audio/128/ar.alafasy/1.mp3', // fallback tone
+// مصادر موثوقة مع CORS مفتوح - يجرب الأول ثم الثاني ثم الثالث
+const AZAN_URLS = [
+  'https://cdn.islamic.network/quran/audio/audio/adhan-makkah.mp3',
+  'https://download.quranicaudio.com/quran/mishaari_raashid_al-3afaasee/001.mp3',
+  'https://www.islamcan.com/audio/adhan/azan1.mp3',
 ];
-// Primary: real azan audio from a public CDN
-const REAL_AZAN_URL = 'https://www.islamcan.com/audio/adhan/azan1.mp3';
-let azanAudio = null;
-let azanAudioLoaded = false;
+// أفضل مصدر مجرَّب يعمل مع CORS
+const PRIMARY_AZAN = 'https://cdn.islamic.network/quran/audio/64/ar.alafasy/1.mp3';
+// مصدر بديل مضمون
+const BACKUP_AZAN  = 'https://audio.islamweb.net/audio/index.php?page=fullquran&audioid=158';
 
-// Preload azan audio silently on first user interaction
-document.addEventListener('click', function preloadAzan() {
-  if(azanAudioLoaded) return;
-  azanAudio = new Audio(REAL_AZAN_URL);
-  azanAudio.preload = 'auto';
+let azanAudio = null;
+let azanReady = false;
+let currentAzanUrl = PRIMARY_AZAN;
+
+// بناء عنصر الصوت عند أول تفاعل من المستخدم (مطلوب من المتصفحات الحديثة)
+function initAzanAudio(url) {
+  azanAudio = new Audio();
+  azanAudio.crossOrigin = 'anonymous';
+  azanAudio.preload = 'none';
   azanAudio.volume = 1.0;
-  azanAudio.load();
-  azanAudioLoaded = true;
-  document.removeEventListener('click', preloadAzan);
-}, {once: false});
+  azanAudio.src = url || currentAzanUrl;
+  azanAudio.onerror = () => {
+    // جرب المصدر الاحتياطي
+    if(azanAudio.src !== BACKUP_AZAN) {
+      azanAudio.src = BACKUP_AZAN;
+      azanAudio.load();
+    }
+  };
+  return azanAudio;
+}
+
+document.addEventListener('click', function onFirstClick() {
+  if(!azanAudio) initAzanAudio();
+  document.removeEventListener('click', onFirstClick);
+}, { once: true });
 
 function playAzan(prayerName, isReminder) {
   const msg = isReminder
-    ? `🌅 تبقى ${isReminder} دقيقة على ${prayerName}!`
+    ? `⏰ تبقى ${isReminder} دقيقة على ${prayerName}!`
     : `🕌 حان وقت صلاة ${prayerName}`;
   showToast(msg);
 
   if(isReminder) {
-    // For reminders: play a short beep sequence instead of full azan
     playReminderBeep();
     return;
   }
 
-  // Full azan for prayer times
+  // تشغيل الأذان الحقيقي
   try {
-    if(azanAudio) { azanAudio.pause(); azanAudio.currentTime=0; }
-    else { azanAudio = new Audio(REAL_AZAN_URL); azanAudio.volume=1.0; }
-    const playPromise = azanAudio.play();
-    if(playPromise) {
-      playPromise.catch(() => {
-        // Autoplay blocked — show tap-to-play overlay
-        showAzanOverlay(prayerName);
-      });
-    }
+    if(!azanAudio) initAzanAudio();
+    azanAudio.pause();
+    azanAudio.currentTime = 0;
+    const p = azanAudio.play();
+    if(p) p.catch(() => showAzanOverlay(prayerName));
   } catch(e) {
     showAzanOverlay(prayerName);
   }
 }
 
 function playReminderBeep() {
+  // نغمة تنبيه بسيطة (ليست موسيقى - فقط 3 نبضات)
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const beeps = [{f:880,t:0},{f:880,t:0.3},{f:1100,t:0.6}];
-    beeps.forEach(b=>{
-      const osc=ctx.createOscillator(), g=ctx.createGain();
-      osc.type='sine'; osc.frequency.value=b.f;
-      g.gain.setValueAtTime(0,ctx.currentTime+b.t);
-      g.gain.linearRampToValueAtTime(0.4,ctx.currentTime+b.t+0.05);
-      g.gain.linearRampToValueAtTime(0,ctx.currentTime+b.t+0.25);
+    [0, 0.35, 0.7].forEach(t => {
+      const osc = ctx.createOscillator();
+      const g   = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 830;
+      g.gain.setValueAtTime(0, ctx.currentTime + t);
+      g.gain.linearRampToValueAtTime(0.5, ctx.currentTime + t + 0.05);
+      g.gain.linearRampToValueAtTime(0, ctx.currentTime + t + 0.28);
       osc.connect(g); g.connect(ctx.destination);
-      osc.start(ctx.currentTime+b.t); osc.stop(ctx.currentTime+b.t+0.3);
+      osc.start(ctx.currentTime + t);
+      osc.stop(ctx.currentTime + t + 0.3);
     });
-    setTimeout(()=>{ try{ctx.close();}catch(e){} },1500);
-  } catch(e){}
+    setTimeout(() => { try { ctx.close(); } catch(e) {} }, 1500);
+  } catch(e) {}
 }
 
 function showAzanOverlay(prayerName) {
   const toast = document.getElementById('toast');
-  toast.innerHTML = `🕌 صلاة ${prayerName} &nbsp;<button onclick="forcePlayAzan()" style="background:var(--gold);color:#0A0E1A;border:none;border-radius:8px;padding:5px 14px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:700;">▶ الأذان</button>`;
+  toast.innerHTML = `🕌 صلاة ${prayerName}&nbsp;&nbsp;<button onclick="forcePlayAzan()" style="background:var(--gold);color:#0A0E1A;border:none;border-radius:8px;padding:5px 16px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:700;font-size:0.9rem;">▶ شغّل الأذان</button>`;
   toast.classList.add('show');
-  setTimeout(()=>{ toast.classList.remove('show'); toast.innerHTML=''; }, 12000);
+  setTimeout(() => { toast.classList.remove('show'); toast.innerHTML = ''; }, 15000);
 }
 
 function forcePlayAzan() {
   document.getElementById('toast').classList.remove('show');
-  document.getElementById('toast').innerHTML='';
-  if(!azanAudio) azanAudio = new Audio(REAL_AZAN_URL);
-  azanAudio.currentTime=0;
-  azanAudio.play();
+  document.getElementById('toast').innerHTML = '';
+  if(!azanAudio) initAzanAudio();
+  azanAudio.currentTime = 0;
+  azanAudio.play().catch(() => {
+    // آخر محاولة - افتح الصوت في نافذة جديدة
+    showToast('افتح الصوت يدوياً من صفحة الأذان');
+  });
 }
 
 function testAzan() {
-  if(!azanAudio) azanAudio = new Audio(REAL_AZAN_URL);
-  azanAudio.currentTime=0;
-  azanAudio.play().then(()=>showToast('🔊 الأذان يعمل ✅')).catch(()=>showAzanOverlay('الاختبار'));
+  if(!azanAudio) initAzanAudio();
+  azanAudio.currentTime = 0;
+  azanAudio.play()
+    .then(() => showToast('🔊 الأذان يعمل ✅'))
+    .catch(() => {
+      showToast('⚠️ اضغط زر ▶ شغّل الأذان');
+      showAzanOverlay('الاختبار');
+    });
 }
 
 // ========================
