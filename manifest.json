@@ -1,0 +1,33 @@
+{
+  "name": "رفيقك في رمضان",
+  "short_name": "رمضان",
+  "description": "تطبيق رمضاني شامل - أذكار، مواقيت صلاة، قرآن كريم",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0A0E1A",
+  "theme_color": "#0A0E1A",
+  "orientation": "portrait",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='100' fill='%230A0E1A'/><text x='50%' y='55%' font-size='320' text-anchor='middle' dominant-baseline='middle'>🌙</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["lifestyle", "religion", "utilities"],
+  "shortcuts": [
+    {
+      "name": "مواقيت الصلاة",
+      "url": "./index.html#prayers",
+      "description": "عرض مواقيت الصلاة"
+    },
+    {
+      "name": "أذكار الصباح",
+      "url": "./index.html#adhkar",
+      "description": "أذكار الصباح والمساء"
+    }
+  ]
+}
