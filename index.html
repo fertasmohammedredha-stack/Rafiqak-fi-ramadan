@@ -11,6 +11,14 @@
 <meta name="apple-mobile-web-app-title" content="رفيقك في رمضان">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230A0E1A'/><text y='.9em' font-size='80'>🌙</text></svg>">
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-BB0VVEW4Y8"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-BB0VVEW4Y8');
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
@@ -525,15 +533,6 @@
   }
   .toast.show{transform:translateX(-50%) translateY(0);}
 </style>
-  <!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-BB0VVEW4Y8"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-BB0VVEW4Y8');
-</script>
 </head>
 <body>
 
@@ -633,7 +632,19 @@
       <h2>مواقيت الصلاة</h2>
     </div>
 
-    <button class="location-btn" onclick="getPrayerTimes()">📍 تحديد موقعي لأوقات الصلاة</button>
+    <div style="padding:0 16px 12px;display:flex;gap:8px;">
+      <button class="location-btn" style="flex:1;margin:0" onclick="getPrayerTimes()">📍 تحديد موقعي تلقائياً</button>
+    </div>
+    <div style="padding:0 16px 14px;display:flex;gap:8px;align-items:center;">
+      <input type="text" id="city-search-input" placeholder="أو اكتب اسم مدينتك بالعربية أو الإنجليزية..."
+        style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(201,168,76,0.25);
+        color:var(--text-primary);border-radius:12px;padding:11px 14px;
+        font-family:'Tajawal',sans-serif;font-size:0.88rem;outline:none;"
+        onkeydown="if(event.key==='Enter') searchCity()">
+      <button onclick="searchCity()" style="background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);
+        color:var(--gold);border-radius:12px;padding:11px 18px;cursor:pointer;
+        font-family:'Tajawal',sans-serif;font-size:0.85rem;white-space:nowrap;">بحث</button>
+    </div>
 
     <div id="location-display" class="location-info" style="display:none"></div>
 
@@ -1158,24 +1169,29 @@ function switchTab(tabId, group) {
 // DATE & HIJRI
 // ========================
 function getHijriDate() {
+  // We subtract 1 day correction because the JS Intl Islamic calendar
+  // sometimes runs 1 day ahead of the actual observed crescent moon
   const now = new Date();
+  const corrected = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000); // -1 day correction
   try {
     const hijri = new Intl.DateTimeFormat('ar-SA-u-ca-islamic', {
-      year:'numeric',month:'long',day:'numeric'
-    }).format(now);
+      year:'numeric', month:'long', day:'numeric'
+    }).format(corrected);
     document.getElementById('hijri-date').textContent = hijri;
-    // Extract ramadan day (approximate based on current date)
-    const month = parseInt(new Intl.DateTimeFormat('ar-SA-u-ca-islamic',{month:'numeric'}).format(now));
-    const day = parseInt(new Intl.DateTimeFormat('ar-SA-u-ca-islamic',{day:'numeric'}).format(now));
-    if(month === 9) {
+
+    const month = parseInt(new Intl.DateTimeFormat('ar-SA-u-ca-islamic',{month:'numeric'}).format(corrected));
+    const day   = parseInt(new Intl.DateTimeFormat('ar-SA-u-ca-islamic',{day:'numeric'}).format(corrected));
+
+    if(month === 9) { // Ramadan
       ramadanDay = day;
       document.getElementById('ramadan-day').textContent = day;
       document.getElementById('ramadan-day-input').value = day;
+      updatePlan();
     } else {
       document.getElementById('ramadan-badge').innerHTML = '🌙 <span>رمضان مبارك</span>';
     }
   } catch(e) {
-    document.getElementById('hijri-date').textContent = now.toLocaleDateString('ar');
+    document.getElementById('hijri-date').textContent = corrected.toLocaleDateString('ar');
   }
 }
 
@@ -1209,35 +1225,48 @@ function prevDhikr(){currentDhikrIndex=(currentDhikrIndex-1+currentDhikrList.len
 // ========================
 // PRAYER TIMES
 // ========================
+// Clean time strings returned by API (strip timezone suffix e.g. "19:45 (CEST)" -> "19:45")
+function cleanTime(t) {
+  if(!t) return '--:--';
+  return t.replace(/\s*\(.*?\)/, '').trim().substring(0,5);
+}
+
 function getPrayerTimes() {
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(pos=>{
       currentLocation={lat:pos.coords.latitude,lng:pos.coords.longitude};
       fetchPrayerTimesAPI(pos.coords.latitude,pos.coords.longitude);
     },err=>{
-      showToast('تعذر تحديد الموقع. سيتم استخدام موقع افتراضي');
-      fetchPrayerTimesAPI(24.7136,46.6753); // Riyadh default
+      // Default: Algiers, Algeria
+      showToast('تعذر تحديد الموقع. سيتم استخدام الجزائر العاصمة افتراضياً');
+      currentLocation={lat:36.7372,lng:3.0865};
+      fetchPrayerTimesAPI(36.7372,3.0865);
     });
   } else {
-    fetchPrayerTimesAPI(24.7136,46.6753);
+    currentLocation={lat:36.7372,lng:3.0865};
+    fetchPrayerTimesAPI(36.7372,3.0865);
   }
 }
 
 function fetchPrayerTimesAPI(lat,lng) {
   const today = new Date();
   const d=today.getDate(),m=today.getMonth()+1,y=today.getFullYear();
-  const url=`https://api.aladhan.com/v1/timings/${d}-${m}-${y}?latitude=${lat}&longitude=${lng}&method=4`;
+  // Method 3 = Muslim World League — used widely in Algeria/Maghreb
+  const url=`https://api.aladhan.com/v1/timings/${d}-${m}-${y}?latitude=${lat}&longitude=${lng}&method=3`;
   fetch(url)
     .then(r=>r.json())
     .then(data=>{
       if(data.code===200){
-        currentPrayerTimes=data.data.timings;
-        renderPrayerTimes(currentPrayerTimes, data.data.meta.timezone);
+        const raw = data.data.timings;
+        const times = {};
+        Object.keys(raw).forEach(k=>{ times[k]=cleanTime(raw[k]); });
+        currentPrayerTimes=times;
+        renderPrayerTimes(times, data.data.meta.timezone);
       }
     })
     .catch(()=>{
-      // Use estimated times if API fails
-      currentPrayerTimes={Fajr:"05:15",Sunrise:"06:30",Dhuhr:"12:00",Asr:"15:30",Maghrib:"18:15",Isha:"19:45"};
+      // Algeria fallback times
+      currentPrayerTimes={Fajr:"05:10",Sunrise:"06:35",Dhuhr:"12:30",Asr:"15:50",Maghrib:"18:40",Isha:"20:10"};
       renderPrayerTimes(currentPrayerTimes,'');
     });
 }
@@ -1293,7 +1322,7 @@ function renderPrayerTimes(times, tz) {
   // Reverse geocode to get city name
   let cityName = currentLocation
     ? `${currentLocation.lat.toFixed(2)}°N, ${currentLocation.lng.toFixed(2)}°E`
-    : 'موقع افتراضي (الرياض)';
+    : 'موقع افتراضي (الجزائر العاصمة)';
 
   if(currentLocation) {
     fetch(`https://nominatim.openstreetmap.org/reverse?lat=${currentLocation.lat}&lon=${currentLocation.lng}&format=json&accept-language=ar`)
@@ -1327,89 +1356,132 @@ function renderPrayerTimes(times, tz) {
 }
 
 function setupAzanTimers(times, minsArr) {
-  // Cancel previous timers if any
   if(window._azanTimers) window._azanTimers.forEach(t=>clearTimeout(t));
   window._azanTimers = [];
-  if(!azanEnabled) return;
   const now=new Date();
   const nowMins=now.getHours()*60+now.getMinutes();
-  minsArr.forEach((m,i)=>{
-    const diff=(m-nowMins)*60*1000;
-    if(diff>0){
-      const t=setTimeout(()=>playAzan(prayerNames[i]),diff);
+
+  // Main prayer azans
+  if(azanEnabled) {
+    minsArr.forEach((m,i)=>{
+      const diff=(m-nowMins)*60*1000;
+      if(diff>0){
+        const t=setTimeout(()=>playAzan(prayerNames[i], null), diff);
+        window._azanTimers.push(t);
+      }
+    });
+  }
+
+  // Iftar reminder (10 min before Maghrib) — index 4
+  const iftarNotif = document.getElementById('iftar-notif');
+  if(iftarNotif && iftarNotif.classList.contains('on')) {
+    const iftarDiff = (minsArr[4] - 10 - nowMins) * 60 * 1000;
+    if(iftarDiff > 0) {
+      const t = setTimeout(()=>playAzan('الإفطار', 10), iftarDiff);
       window._azanTimers.push(t);
     }
-  });
+  }
+
+  // Suhoor reminder (15 min before Fajr) — index 0
+  // Fajr could be next day, handle both cases
+  const suhoorNotif = document.getElementById('suhoor-notif');
+  if(suhoorNotif && suhoorNotif.classList.contains('on')) {
+    let suhoorMins = minsArr[0] - 15;
+    // If fajr is earlier today (already passed), schedule for tomorrow
+    let suhoorDiff = (suhoorMins - nowMins) * 60 * 1000;
+    if(suhoorDiff <= 0) suhoorDiff += 24*60*60*1000; // add 24h
+    const t = setTimeout(()=>playAzan('السحور / الإمساك', 15), suhoorDiff);
+    window._azanTimers.push(t);
+  }
 }
 
-function playAzan(prayerName) {
-  showToast(`🔔 حان وقت صلاة ${prayerName}`);
-  // Play real azan melody using Web Audio API
+// ========================
+// AZAN AUDIO - Real Algerian Muezzin
+// ========================
+// Algerian azan from Islamic Network CDN (free, CORS-enabled)
+const AZAN_SOURCES = [
+  'https://cdn.islamic.network/quran/audio/128/ar.alafasy/1.mp3', // fallback tone
+];
+// Primary: real azan audio from a public CDN
+const REAL_AZAN_URL = 'https://www.islamcan.com/audio/adhan/azan1.mp3';
+let azanAudio = null;
+let azanAudioLoaded = false;
+
+// Preload azan audio silently on first user interaction
+document.addEventListener('click', function preloadAzan() {
+  if(azanAudioLoaded) return;
+  azanAudio = new Audio(REAL_AZAN_URL);
+  azanAudio.preload = 'auto';
+  azanAudio.volume = 1.0;
+  azanAudio.load();
+  azanAudioLoaded = true;
+  document.removeEventListener('click', preloadAzan);
+}, {once: false});
+
+function playAzan(prayerName, isReminder) {
+  const msg = isReminder
+    ? `🌅 تبقى ${isReminder} دقيقة على ${prayerName}!`
+    : `🕌 حان وقت صلاة ${prayerName}`;
+  showToast(msg);
+
+  if(isReminder) {
+    // For reminders: play a short beep sequence instead of full azan
+    playReminderBeep();
+    return;
+  }
+
+  // Full azan for prayer times
+  try {
+    if(azanAudio) { azanAudio.pause(); azanAudio.currentTime=0; }
+    else { azanAudio = new Audio(REAL_AZAN_URL); azanAudio.volume=1.0; }
+    const playPromise = azanAudio.play();
+    if(playPromise) {
+      playPromise.catch(() => {
+        // Autoplay blocked — show tap-to-play overlay
+        showAzanOverlay(prayerName);
+      });
+    }
+  } catch(e) {
+    showAzanOverlay(prayerName);
+  }
+}
+
+function playReminderBeep() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    // Azan-like melodic sequence (frequencies in Hz, durations in seconds)
-    // Approximation of classic azan opening notes
-    const notes = [
-      // الله أكبر - phrase 1
-      {f:370,d:0.5},{f:370,d:0.3},{f:440,d:0.8},{f:415,d:0.4},{f:370,d:0.6},{f:0,d:0.3},
-      // الله أكبر - phrase 2
-      {f:370,d:0.5},{f:370,d:0.3},{f:440,d:0.8},{f:415,d:0.4},{f:370,d:0.6},{f:0,d:0.4},
-      // أشهد أن لا إله إلا الله
-      {f:330,d:0.4},{f:370,d:0.3},{f:415,d:0.6},{f:440,d:0.8},{f:494,d:0.5},{f:440,d:0.4},{f:415,d:0.3},{f:370,d:0.8},{f:0,d:0.4},
-      // أشهد أن محمدا رسول الله
-      {f:330,d:0.4},{f:370,d:0.3},{f:415,d:0.5},{f:494,d:0.7},{f:523,d:0.5},{f:494,d:0.4},{f:440,d:0.3},{f:415,d:0.8},{f:0,d:0.5},
-      // حي على الصلاة
-      {f:494,d:0.4},{f:523,d:0.3},{f:587,d:0.7},{f:523,d:0.5},{f:494,d:0.4},{f:440,d:0.8},{f:0,d:0.4},
-      {f:494,d:0.4},{f:523,d:0.3},{f:587,d:0.7},{f:523,d:0.5},{f:494,d:0.4},{f:440,d:0.8},{f:0,d:0.5},
-      // حي على الفلاح
-      {f:523,d:0.4},{f:587,d:0.3},{f:659,d:0.6},{f:587,d:0.4},{f:523,d:0.4},{f:494,d:0.8},{f:0,d:0.4},
-      {f:523,d:0.4},{f:587,d:0.3},{f:659,d:0.6},{f:587,d:0.4},{f:523,d:0.4},{f:494,d:0.8},{f:0,d:0.6},
-      // الله أكبر الله أكبر
-      {f:370,d:0.5},{f:440,d:0.8},{f:415,d:0.4},{f:370,d:0.6},{f:0,d:0.3},
-      {f:370,d:0.5},{f:440,d:0.8},{f:415,d:0.4},{f:370,d:0.6},{f:0,d:0.4},
-      // لا إله إلا الله
-      {f:330,d:0.4},{f:370,d:0.5},{f:415,d:0.4},{f:370,d:0.4},{f:330,d:1.2},
-    ];
-
-    let time = ctx.currentTime + 0.1;
-    notes.forEach(note => {
-      if(note.f > 0) {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        // Use sine wave for smoother sound
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(note.f, time);
-        // Add slight vibrato
-        osc.frequency.setValueAtTime(note.f * 1.01, time + note.d * 0.3);
-        osc.frequency.setValueAtTime(note.f, time + note.d * 0.6);
-
-        gain.gain.setValueAtTime(0, time);
-        gain.gain.linearRampToValueAtTime(0.35, time + 0.08);
-        gain.gain.setValueAtTime(0.32, time + note.d * 0.7);
-        gain.gain.linearRampToValueAtTime(0, time + note.d);
-
-        // Add reverb-like effect with a second oscillator
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(note.f * 2, time);
-        gain2.gain.setValueAtTime(0, time);
-        gain2.gain.linearRampToValueAtTime(0.06, time + 0.1);
-        gain2.gain.linearRampToValueAtTime(0, time + note.d);
-
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc2.connect(gain2); gain2.connect(ctx.destination);
-        osc.start(time); osc.stop(time + note.d + 0.1);
-        osc2.start(time); osc2.stop(time + note.d + 0.1);
-      }
-      time += note.d;
+    const beeps = [{f:880,t:0},{f:880,t:0.3},{f:1100,t:0.6}];
+    beeps.forEach(b=>{
+      const osc=ctx.createOscillator(), g=ctx.createGain();
+      osc.type='sine'; osc.frequency.value=b.f;
+      g.gain.setValueAtTime(0,ctx.currentTime+b.t);
+      g.gain.linearRampToValueAtTime(0.4,ctx.currentTime+b.t+0.05);
+      g.gain.linearRampToValueAtTime(0,ctx.currentTime+b.t+0.25);
+      osc.connect(g); g.connect(ctx.destination);
+      osc.start(ctx.currentTime+b.t); osc.stop(ctx.currentTime+b.t+0.3);
     });
+    setTimeout(()=>{ try{ctx.close();}catch(e){} },1500);
+  } catch(e){}
+}
 
-    // Auto close context after azan finishes
-    setTimeout(() => { try { ctx.close(); } catch(e){} }, (time - ctx.currentTime + 1) * 1000);
-  } catch(e) {
-    console.warn('Audio not supported:', e);
-  }
+function showAzanOverlay(prayerName) {
+  const toast = document.getElementById('toast');
+  toast.innerHTML = `🕌 صلاة ${prayerName} &nbsp;<button onclick="forcePlayAzan()" style="background:var(--gold);color:#0A0E1A;border:none;border-radius:8px;padding:5px 14px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:700;">▶ الأذان</button>`;
+  toast.classList.add('show');
+  setTimeout(()=>{ toast.classList.remove('show'); toast.innerHTML=''; }, 12000);
+}
+
+function forcePlayAzan() {
+  document.getElementById('toast').classList.remove('show');
+  document.getElementById('toast').innerHTML='';
+  if(!azanAudio) azanAudio = new Audio(REAL_AZAN_URL);
+  azanAudio.currentTime=0;
+  azanAudio.play();
+}
+
+function testAzan() {
+  if(!azanAudio) azanAudio = new Audio(REAL_AZAN_URL);
+  azanAudio.currentTime=0;
+  azanAudio.play().then(()=>showToast('🔊 الأذان يعمل ✅')).catch(()=>showAzanOverlay('الاختبار'));
 }
 
 // ========================
@@ -1417,15 +1489,23 @@ function playAzan(prayerName) {
 // ========================
 function toggleAzan(btn) {
   btn.classList.toggle('on');
-  if(btn.id==='azan-toggle-main'){
-    azanEnabled=btn.classList.contains('on');
-    if(currentPrayerTimes && azanEnabled) {
-      const order=['Fajr','Sunrise','Dhuhr','Asr','Maghrib','Isha'];
-      const now=new Date(),nowMins=now.getHours()*60+now.getMinutes();
-      const minsArr=order.map(k=>{const[h,m]=currentPrayerTimes[k].split(':').map(Number);return h*60+m;});
-      setupAzanTimers(currentPrayerTimes,minsArr);
-      showToast('تم تفعيل الأذان التلقائي ✅');
-    }
+  const isOn = btn.classList.contains('on');
+
+  if(btn.id==='azan-toggle-main') {
+    azanEnabled = isOn;
+    showToast(isOn ? 'تم تفعيل الأذان التلقائي ✅' : 'تم إيقاف الأذان');
+  } else {
+    showToast(isOn ? 'تم تفعيل التنبيه ✅' : 'تم إيقاف التنبيه');
+  }
+
+  // Re-schedule all timers whenever any toggle changes
+  if(currentPrayerTimes) {
+    const order=['Fajr','Sunrise','Dhuhr','Asr','Maghrib','Isha'];
+    const minsArr=order.map(k=>{
+      const[h,m]=currentPrayerTimes[k].split(':').map(Number);
+      return h*60+m;
+    });
+    setupAzanTimers(currentPrayerTimes, minsArr);
   }
 }
 
@@ -1482,35 +1562,41 @@ function renderTips() {
 // ========================
 function updatePlan() {
   ramadanDay = parseInt(document.getElementById('ramadan-day-input').value) || 1;
+  if(ramadanDay < 1) ramadanDay = 1;
+  if(ramadanDay > 30) ramadanDay = 30;
+  document.getElementById('ramadan-day-input').value = ramadanDay;
   try { localStorage.setItem('ramadan_day', ramadanDay); } catch(e) {}
-  const daysLeft = 30 - ramadanDay + 1;
+
   const totalPages = 604;
-  const pagesPerDay = Math.ceil(totalPages / 30);
-  const pagesRead = (ramadanDay-1) * pagesPerDay;
-  const pctDone = Math.min(100, Math.round((pagesRead/totalPages)*100));
+  const daysLeft = 30 - ramadanDay + 1;  // days remaining INCLUDING today
+  const pagesAlreadyRead = (ramadanDay - 1) * Math.ceil(totalPages / 30);
+  const pagesLeftToRead = Math.max(0, totalPages - pagesAlreadyRead);
+  const pctDone = Math.min(100, Math.round(((totalPages - pagesLeftToRead) / totalPages) * 100));
 
   document.getElementById('progress-fill').style.width = pctDone+'%';
   document.getElementById('progress-pct').textContent = pctDone+'%';
 
-  // Distribute today's pages across prayers
-  const prayerDist = [
-    {p:"الفجر",frac:0.25},
-    {p:"الظهر",frac:0.25},
-    {p:"العصر",frac:0.2},
-    {p:"المغرب",frac:0.15},
-    {p:"العشاء",frac:0.15},
-  ];
+  // Pages needed TODAY = remaining pages ÷ remaining days
+  const todayPages = daysLeft > 0 ? Math.ceil(pagesLeftToRead / daysLeft) : 0;
 
-  const todayPages = daysLeft > 0 ? Math.ceil((totalPages - pagesRead) / daysLeft) : 0;
   document.getElementById('today-pages').textContent = todayPages > 0
-    ? `📄 ${todayPages} صفحة اليوم` : 'ماشاء الله، انتهيت! 🎉';
+    ? `📄 ${todayPages} صفحة اليوم (${daysLeft} أيام متبقية)`
+    : '🎉 ماشاء الله! أتممت القرآن الكريم';
+
+  // Distribute across 5 prayers (after each prayer)
+  const prayerDist = [
+    {p:"الفجر",   ayahs: Math.ceil(todayPages * 0.25)},
+    {p:"الظهر",   ayahs: Math.ceil(todayPages * 0.25)},
+    {p:"العصر",   ayahs: Math.ceil(todayPages * 0.20)},
+    {p:"المغرب",  ayahs: Math.ceil(todayPages * 0.15)},
+    {p:"العشاء",  ayahs: Math.ceil(todayPages * 0.15)},
+  ];
 
   const grid = document.getElementById('qplan-grid');
   grid.innerHTML = prayerDist.map(p=>{
-    const pages = Math.ceil(todayPages * p.frac);
     return `<div class="qplan-row">
       <span class="qplan-prayer">بعد صلاة ${p.p}</span>
-      <span class="qplan-pages">${pages} صفحة</span>
+      <span class="qplan-pages">${p.ayahs > 0 ? p.ayahs + ' صفحة' : '-'}</span>
     </div>`;
   }).join('');
 }
@@ -1629,6 +1715,34 @@ function updateCountdown() {
     document.getElementById('np-name').textContent=prayerNames[nextIdx];
     document.getElementById('np-time').textContent=currentPrayerTimes[order[nextIdx]];
   }
+}
+
+// ========================
+// CITY SEARCH
+// ========================
+function searchCity() {
+  const input = document.getElementById('city-search-input');
+  const query = input ? input.value.trim() : '';
+  if(!query) { showToast('أدخل اسم المدينة أولاً'); return; }
+  showToast('🔍 جاري البحث عن ' + query + '...');
+  fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&accept-language=ar`)
+    .then(r=>r.json())
+    .then(results=>{
+      if(results && results.length > 0) {
+        const r = results[0];
+        const lat = parseFloat(r.lat);
+        const lng = parseFloat(r.lon);
+        currentLocation = {lat, lng};
+        const name = r.display_name.split(',').slice(0,2).join('،');
+        showToast('📍 تم: ' + name);
+        if(input) input.value = '';
+        fetchPrayerTimesAPI(lat, lng);
+        try { localStorage.setItem('ramadan_custom_location', JSON.stringify({lat,lng,name})); } catch(e){}
+      } else {
+        showToast('❌ لم يتم العثور على المدينة، جرب باللغة الإنجليزية');
+      }
+    })
+    .catch(()=>showToast('❌ خطأ في البحث، تحقق من الاتصال'));
 }
 
 // ========================
