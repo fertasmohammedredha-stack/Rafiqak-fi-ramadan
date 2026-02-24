@@ -858,52 +858,52 @@ function searchCity(){
 
 function fetchPrayerTimes(lat, lng){
   const now = new Date();
-  const timestamp = Math.floor(now.getTime()/1000);
+  const d=now.getDate(), m=now.getMonth()+1, y=now.getFullYear();
 
-  // نستخدم timingsByCity مع إرسال الإحداثيات وتضمين timezone تلقائياً
-  // method=3  = Muslim World League (مناسب للجزائر والمغرب العربي)
-  // tune=0    = بدون تعديل
-  const url = `https://api.aladhan.com/v1/timings/${timestamp}?latitude=${lat}&longitude=${lng}&method=3&school=0&midnightMode=0`;
+  // ============================================================
+  // AlAdhan.com — المصدر الرسمي الأكثر دقة في العالم
+  // method=3  : رابطة العالم الإسلامي (معتمد في الجزائر)
+  // نُرسل التاريخ الميلادي + الإحداثيات فيحسب التوقيت المحلي تلقائياً
+  // ============================================================
+  const url = `https://api.aladhan.com/v1/timings/${d}-${m}-${y}`
+            + `?latitude=${lat}&longitude=${lng}&method=3&school=0`;
 
   fetch(url)
     .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
     .then(data=>{
-      if(data.code !== 200) throw new Error('API: '+data.status);
+      if(data.code !== 200) throw new Error(data.status);
 
-      const raw   = data.data.timings;
-      const tz    = data.data.meta.timezone; // مثال: "Africa/Algiers"
+      const raw = data.data.timings;
+      const tz  = data.data.meta.timezone; // e.g. "Africa/Algiers"
 
-      // نظّف الأوقات - API يُرجعها بالتوقيت المحلي الصحيح تلقائياً
+      // اجلب التوقيت المحلي الصحيح باستخدام timezone الذي أرجعه API
+      // هذا يحل مشكلة الأوقات الخاطئة في أي ولاية
+      const localNow = new Date(new Date().toLocaleString('en-US', {timeZone: tz}));
+
       const times = {};
-      ['Fajr','Sunrise','Dhuhr','Asr','Maghrib','Isha','Midnight','Imsak'].forEach(k=>{
+      ['Fajr','Sunrise','Dhuhr','Asr','Maghrib','Isha','Imsak'].forEach(k=>{
         if(raw[k]) times[k] = cleanTime(raw[k]);
       });
 
       currentPrayerTimes = times;
 
-      // اجلب اسم المدينة ثم ارسم
+      // اجلب اسم المدينة
       fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ar`)
         .then(r=>r.json())
         .then(geo=>{
           const city    = geo.address?.city || geo.address?.town || geo.address?.village || geo.address?.county || '';
           const country = geo.address?.country || '';
-          const name    = [city,country].filter(Boolean).join('، ');
+          const name    = [city, country].filter(Boolean).join('، ');
           const display = name || `${lat.toFixed(3)}°, ${lng.toFixed(3)}°`;
           renderPrayerTimes(times, display, tz);
           savePrayerTimesToStorage(times, display);
         })
-        .catch(()=>{
-          renderPrayerTimes(times, `${lat.toFixed(3)}°N, ${lng.toFixed(3)}°E`, tz);
-        });
+        .catch(()=> renderPrayerTimes(times, `${lat.toFixed(2)}°N ${lng.toFixed(2)}°E`, tz));
     })
     .catch(err=>{
       console.error('Prayer API error:', err);
       showToast('❌ تعذر تحميل المواقيت - تحقق من الإنترنت');
-      // أوقات احتياطية للجزائر العاصمة (رمضان 2025 تقريبي)
-      const fallback = {
-        Fajr:'04:52', Sunrise:'06:20', Dhuhr:'12:26',
-        Asr:'15:50',  Maghrib:'18:39', Isha:'20:08'
-      };
+      const fallback = {Fajr:'04:52',Sunrise:'06:20',Dhuhr:'12:26',Asr:'15:50',Maghrib:'18:39',Isha:'20:08',Imsak:'04:42'};
       currentPrayerTimes = fallback;
       renderPrayerTimes(fallback, 'الجزائر العاصمة (احتياطي)', 'Africa/Algiers');
     });
@@ -1073,18 +1073,28 @@ function playAzan(name, isReminder){
 }
 
 function playBeep(){
+  // صوت تنبيه واضح - ليس أذاناً - جرس رمضاني
+  // 3 نغمات تصاعدية تُعرِّف المستخدم أنه تذكير وليس أذاناً
   try{
-    const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    [0,0.45,0.9].forEach(t=>{
-      const o=ctx.createOscillator(),g=ctx.createGain();
-      o.frequency.value=880;o.type='sine';
-      g.gain.setValueAtTime(0,ctx.currentTime+t);
-      g.gain.linearRampToValueAtTime(0.5,ctx.currentTime+t+0.06);
-      g.gain.linearRampToValueAtTime(0,ctx.currentTime+t+0.3);
-      o.connect(g);g.connect(ctx.destination);
-      o.start(ctx.currentTime+t);o.stop(ctx.currentTime+t+0.32);
-    });
-    setTimeout(()=>{try{ctx.close();}catch(e){}},1800);
+    const ctx = new(window.AudioContext||window.webkitAudioContext)();
+    const t0  = ctx.currentTime + 0.05;
+
+    // نغمة 1 - منخفضة
+    const bell1 = (t, freq, dur) => {
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type='sine'; o.frequency.value=freq;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.55, t+0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, t+dur);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t+dur+0.05);
+    };
+
+    bell1(t0,      600, 0.6);   // دووو
+    bell1(t0+0.7,  750, 0.6);   // ديي
+    bell1(t0+1.4,  900, 0.9);   // دااا (أطول)
+
+    setTimeout(()=>{try{ctx.close();}catch(e){}}, 3000);
   }catch(e){}
 }
 
@@ -1108,17 +1118,58 @@ function testAzan(){
 // ========================
 function toggleAzan(btn){
   btn.classList.toggle('on');
-  const on=btn.classList.contains('on');
+  const on = btn.classList.contains('on');
+
   if(btn.id==='azan-toggle-main'){
-    azanEnabled=on;
-    showToast(on?'تم تفعيل الأذان ✅':'تم إيقاف الأذان');
-  } else {
-    showToast(on?'تم تفعيل التنبيه ✅':'تم إيقاف التنبيه');
+    azanEnabled = on;
+    showToast(on ? '🔊 تم تفعيل الأذان ✅' : '🔕 تم إيقاف الأذان');
+  } else if(btn.id==='iftar-notif'){
+    showToast(on ? '🔔 تنبيه الإفطار مفعّل ✅' : 'تم إيقاف تنبيه الإفطار');
+  } else if(btn.id==='suhoor-notif'){
+    showToast(on ? '🔔 تنبيه السحور مفعّل ✅' : 'تم إيقاف تنبيه السحور');
   }
+
+  // حفظ حالة كل الأزرار في localStorage
+  try{
+    localStorage.setItem('azan_settings', JSON.stringify({
+      main:   document.getElementById('azan-toggle-main').classList.contains('on'),
+      iftar:  document.getElementById('iftar-notif').classList.contains('on'),
+      suhoor: document.getElementById('suhoor-notif').classList.contains('on'),
+    }));
+  }catch(e){}
+
+  // إعادة جدولة التنبيهات
   if(currentPrayerTimes){
     const order=['Fajr','Sunrise','Dhuhr','Asr','Maghrib','Isha'];
     const minsArr=order.map(k=>{const[h,m]=(currentPrayerTimes[k]||'00:00').split(':').map(Number);return h*60+m;});
-    setupTimers(currentPrayerTimes,minsArr);
+    setupTimers(currentPrayerTimes, minsArr);
+  }
+}
+
+// تحميل إعدادات الأذان من localStorage (يُستدعى في init)
+function loadAzanSettings(){
+  try{
+    const s = JSON.parse(localStorage.getItem('azan_settings'));
+    if(s){
+      // طبّق الحالة المحفوظة
+      const mainBtn   = document.getElementById('azan-toggle-main');
+      const iftarBtn  = document.getElementById('iftar-notif');
+      const suhoorBtn = document.getElementById('suhoor-notif');
+      if(s.main   !== false){ mainBtn.classList.add('on');   azanEnabled=true; }
+      if(s.iftar  !== false)  iftarBtn.classList.add('on');
+      if(s.suhoor !== false)  suhoorBtn.classList.add('on');
+    } else {
+      // أول مرة: فعّل كل شيء افتراضياً
+      document.getElementById('azan-toggle-main').classList.add('on');
+      document.getElementById('iftar-notif').classList.add('on');
+      document.getElementById('suhoor-notif').classList.add('on');
+      azanEnabled = true;
+      localStorage.setItem('azan_settings', JSON.stringify({main:true,iftar:true,suhoor:true}));
+    }
+  }catch(e){
+    // إذا فشل localStorage فعّل افتراضياً
+    document.getElementById('azan-toggle-main').classList.add('on');
+    azanEnabled = true;
   }
 }
 
@@ -1295,7 +1346,8 @@ function init(){
   renderAsma();
   renderTips();
   updatePlan();
-  loadSaved();
+  loadAzanSettings(); // ← تحميل إعدادات الأذان أولاً
+  loadSaved();        // ← ثم تحميل المواقيت (يستخدم azanEnabled)
   setInterval(updateCountdown,60000);
   setInterval(()=>{const h=new Date().getHours();if([5,12,16,20].includes(h))initGreeting();},60000);
 }
